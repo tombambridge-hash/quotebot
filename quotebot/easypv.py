@@ -27,6 +27,7 @@ class EasyPVError(Exception):
 
 class EasyPV:
     def __init__(self, cfg: dict):
+        self._full_cfg = cfg
         self.cfg = cfg.get("easypv", {})
         self.enabled = bool(self.cfg.get("enabled", True))
         self.base_url = self.cfg.get("base_url", "https://easy-pv.co.uk").rstrip("/")
@@ -62,9 +63,11 @@ class EasyPV:
             try:
                 self._login(page)
                 url = self._new_project(page, lead)
+                design_note = self._design_roof(page, lead)
                 self._add_services_cost(page, quote)
                 shot = self._screenshot(page, f"lead{lead.get('id', 0)}_proposal")
-                return {"url": url or page.url, "screenshot": shot}
+                return {"url": url or page.url, "screenshot": shot,
+                        "design": design_note}
             except EasyPVError:
                 raise
             except Exception as exc:
@@ -157,6 +160,26 @@ class EasyPV:
                 break
         self._settle(page)
         return page.url
+
+    def _design_roof(self, page, lead: Dict[str, Any]) -> str:
+        """Hand the design step to the AI roof designer (Claude vision loop).
+        Non-fatal: if it can't finish, the project is still created and the
+        email tells Tom to complete the design by hand."""
+        from .roof_designer import RoofDesigner, RoofDesignError
+
+        designer = RoofDesigner(self._full_cfg)
+        if not designer.enabled:
+            return ("AI roof design not configured — finish the roof design "
+                    "manually (set anthropic.api_key in config.yaml to automate it).")
+        if not lead.get("panels"):
+            return "No panel count on this lead — roof design left for manual entry."
+        try:
+            summary = designer.design(page, lead)
+            return f"AI roof design complete: {summary}"
+        except RoofDesignError as exc:
+            log.warning("AI roof design failed: %s", exc)
+            self._screenshot(page, f"lead{lead.get('id', 0)}_design_failed")
+            return f"AI roof design FAILED ({exc}) — finish the design manually."
 
     def _add_services_cost(self, page, quote) -> None:
         """Best effort: add total services as a custom cost / quote line."""

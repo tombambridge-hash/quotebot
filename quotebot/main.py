@@ -134,7 +134,8 @@ class Bot:
                 self.store.update_lead(lead_id, status="proposal_created",
                                        easypv_url=url)
                 easypv_note = (f"Easy-PV project created: {url}\n"
-                               "Open it to finish the roof design & send the proposal.")
+                               f"{result.get('design', '')}\n"
+                               "Open it to review & send the proposal.")
             except EasyPVError as exc:
                 self.store.update_lead(lead_id, status="error", error=str(exc))
                 easypv_note = (f"Easy-PV step FAILED: {exc}\n"

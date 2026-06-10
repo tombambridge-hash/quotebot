@@ -60,6 +60,16 @@ easypv:
   chrome_channel: chrome   # uses your installed Google Chrome
   timeout_ms: 20000
 
+# AI roof design — lets the bot SEE the Easy-PV satellite map and draw the
+# panel array itself (screenshot -> Claude decides clicks -> repeat).
+# Get an API key at https://console.anthropic.com (pay-as-you-go; a typical
+# design costs a few pence). Leave api_key blank to keep roof design manual.
+anthropic:
+  enabled: true
+  api_key: ""              # or set the ANTHROPIC_API_KEY environment variable
+  model: claude-opus-4-8
+  max_design_steps: 40     # safety cap on actions per design
+
 bot:
   poll_seconds: 60         # how often to check the inbox
   state_db: state.db

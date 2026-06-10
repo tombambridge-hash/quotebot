@@ -83,6 +83,24 @@ in `logs/`. **Note:** the roof design (drawing the array on the map) needs a
 human eye — the bot creates the project, fills the client details and adds
 your services price; you finish the design from the emailed link.
 
+## AI roof design (Claude vision)
+
+With an Anthropic API key in `config.yaml` (`anthropic.api_key`, from
+<https://console.anthropic.com>), the bot **draws the panel array itself**:
+after creating the Easy-PV project it screenshots the satellite map, asks
+Claude where to click and drag (find the property, pick the south-facing roof
+face, avoid chimneys/velux, place the panels, set the pitch), executes each
+action in Chrome, and repeats until the design is saved. The summary email
+tells you what it designed so you can sanity-check before sending.
+
+- Pay-as-you-go: a typical design costs a few pence (each step sends one
+  screenshot to the API).
+- Safety cap: `anthropic.max_design_steps` (default 40). If Claude can't
+  finish — property not found on the map, unusual roof — it says so, the
+  project is still created with your price attached, and the email tells you
+  to finish the design by hand. No lead is ever lost.
+- Leave `api_key` blank to keep the design step manual.
+
 ## Talking to the bot remotely
 
 Email **tombambridge@icloud.com → itself** (from Mail on any Apple device)
