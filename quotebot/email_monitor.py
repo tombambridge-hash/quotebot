@@ -7,6 +7,7 @@ and classifies new messages as Formspree leads or owner commands.
 
 import email
 import email.header
+import email.message
 import email.utils
 import imaplib
 import logging
