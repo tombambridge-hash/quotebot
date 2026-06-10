@@ -1,0 +1,62 @@
+# QuoteBot configuration — copy to config.yaml and fill in the secrets.
+# config.yaml is gitignored so your passwords never end up on GitHub.
+
+icloud:
+  email: tombambridge@icloud.com
+  # NOT your Apple ID password. Create an app-specific password at
+  # https://appleid.apple.com -> Sign-In and Security -> App-Specific Passwords
+  app_password: "xxxx-xxxx-xxxx-xxxx"
+  imap_host: imap.mail.me.com
+  imap_port: 993
+  smtp_host: smtp.mail.me.com
+  smtp_port: 587
+
+owner:
+  # Where lead summaries / questions are sent (any address you read everywhere)
+  notify_email: tombambridge@icloud.com
+  # Only these senders may give the bot commands (subject starting "Bot")
+  command_senders:
+    - tombambridge@icloud.com
+  # Optional: your iMessage number/email for a ping when a proposal is ready,
+  # e.g. "+447700900123". Leave blank to disable.
+  imessage_handle: ""
+
+leads:
+  # Emails whose sender contains any of these are treated as website leads
+  formspree_senders:
+    - formspree.io
+  # Map YOUR form's field labels to the bot's canonical fields.
+  # Add the exact labels your Formspree form uses if they differ.
+  field_aliases:
+    name: []          # e.g. ["Full Name"]
+    email: []
+    phone: []
+    address: []
+    postcode: []
+    message: []
+    panels: []        # e.g. ["How many panels?"]
+    batteries: []
+    property: []      # e.g. ["Property type"] — used to pick scaffolding rate
+
+pricing:
+  panel_wattage_kw: 0.44   # used to decide if G99 applies (>3.68kW)
+  defaults:
+    roof_faces: 1
+    dc_strings: 1
+    scaffold: two_storey   # bungalow | single_storey_extension | two_storey |
+                           # two_storey_complex | three_storey
+
+easypv:
+  enabled: true
+  base_url: https://easy-pv.co.uk
+  email: "your-easypv-login@example.com"
+  password: "your-easypv-password"
+  headless: false          # false = you can watch Chrome work; true = invisible
+  chrome_channel: chrome   # uses your installed Google Chrome
+  timeout_ms: 20000
+
+bot:
+  poll_seconds: 60         # how often to check the inbox
+  state_db: state.db
+  log_dir: logs
+  dry_run: false           # true = price + email only, skip Easy-PV
