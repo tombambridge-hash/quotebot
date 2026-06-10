@@ -1,5 +1,6 @@
 config.yaml
 state.db
+chrome-profile/
 logs/
 venv/
 __pycache__/

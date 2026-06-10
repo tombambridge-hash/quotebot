@@ -53,12 +53,15 @@ cd quotebot
 ./install.sh          # creates config.yaml first time — edit it, then re-run
 ```
 
-You need to put two credentials in `config.yaml` (it's gitignored, never pushed):
+You need one credential in `config.yaml` (it's gitignored, never pushed):
 
 1. **iCloud app-specific password** — your normal Apple password won't work
    over IMAP. Create one at <https://appleid.apple.com> → *Sign-In and
    Security* → *App-Specific Passwords*.
-2. **Easy-PV login** (email + password).
+
+**No Easy-PV password needed** — the bot keeps its own logged-in Chrome
+profile. During calibration (below) a Chrome window opens; log into Easy-PV in
+it once and the bot stays logged in from then on, like your normal Chrome.
 
 `install.sh` installs a launchd service so the bot starts at login and
 restarts itself if it crashes. The Mac must be on (and not fully asleep) for

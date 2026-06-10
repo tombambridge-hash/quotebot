@@ -49,8 +49,13 @@ pricing:
 easypv:
   enabled: true
   base_url: https://easy-pv.co.uk
-  email: "your-easypv-login@example.com"
-  password: "your-easypv-password"
+  # No password needed: the bot keeps its own logged-in Chrome profile.
+  # Run `./venv/bin/python -m quotebot.easypv` once, log into Easy-PV in the
+  # Chrome window that opens, and it stays logged in from then on.
+  # (Optional fallback for fully automatic login:)
+  email: ""
+  password: ""
+  profile_dir: chrome-profile  # where the bot's logged-in Chrome session lives
   headless: false          # false = you can watch Chrome work; true = invisible
   chrome_channel: chrome   # uses your installed Google Chrome
   timeout_ms: 20000

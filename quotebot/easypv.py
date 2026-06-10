@@ -35,23 +35,29 @@ class EasyPV:
 
     # ------------------------------------------------------------------
     def create_proposal(self, lead: Dict[str, Any], quote) -> Dict[str, str]:
-        """Log in, create a project for this lead, attach the services cost.
+        """Open the bot's Chrome profile, create a project for this lead,
+        attach the services cost.
+
+        Login uses the persistent Chrome profile (log in once during
+        calibration and it stays logged in) — easypv.email/password in
+        config.yaml are an optional fallback for automatic form login.
 
         Returns {"url": ..., "screenshot": ...}. Raises EasyPVError with a
         screenshot saved to logs/ on failure.
         """
         if not self.enabled:
             raise EasyPVError("Easy-PV automation disabled in config")
-        if not self.cfg.get("email") or not self.cfg.get("password"):
-            raise EasyPVError("easypv.email / easypv.password not set in config.yaml")
 
         from playwright.sync_api import sync_playwright
 
         headless = bool(self.cfg.get("headless", False))
         channel = self.cfg.get("chrome_channel", "chrome")
+        profile_dir = os.path.abspath(self.cfg.get("profile_dir", "chrome-profile"))
+        os.makedirs(profile_dir, exist_ok=True)
         with sync_playwright() as pw:
-            browser = pw.chromium.launch(channel=channel, headless=headless)
-            page = browser.new_page()
+            context = pw.chromium.launch_persistent_context(
+                profile_dir, channel=channel, headless=headless)
+            page = context.pages[0] if context.pages else context.new_page()
             page.set_default_timeout(int(self.cfg.get("timeout_ms", 20000)))
             try:
                 self._login(page)
@@ -67,7 +73,7 @@ class EasyPV:
                     f"Easy-PV automation failed: {exc} (screenshot: {shot})"
                 ) from exc
             finally:
-                browser.close()
+                context.close()
 
     # ------------------------------------------------------------------
     @staticmethod
@@ -80,9 +86,26 @@ class EasyPV:
 
     def _login(self, page) -> None:
         page.goto(self.base_url)
-        # Already logged in from a saved session?
-        if self._visible(page, 'a:has-text("My Projects"), a:has-text("Log out")'):
+        self._settle(page)
+        # Already logged in (persistent Chrome profile keeps the session)?
+        if self._logged_in(page):
             return
+        if not (self.cfg.get("email") and self.cfg.get("password")):
+            if not self.cfg.get("headless", False):
+                # Visible window: let Tom log in by hand, wait up to 5 minutes.
+                log.info("Not logged into Easy-PV — log in now in the Chrome "
+                         "window (waiting up to 5 minutes)...")
+                for _ in range(60):
+                    time.sleep(5)
+                    if self._logged_in(page):
+                        log.info("Easy-PV login detected — profile saved, no "
+                                 "password needed from now on")
+                        return
+            raise EasyPVError(
+                "Not logged into Easy-PV. Run 'python -m quotebot.easypv' once "
+                "and log in by hand in the Chrome window — the bot's Chrome "
+                "profile remembers it. (Or set easypv.email/password in "
+                "config.yaml for automatic login.)")
         for sel in ('a:has-text("Log in")', 'a:has-text("Login")',
                     'a:has-text("Sign in")'):
             if self._visible(page, sel):
@@ -101,6 +124,11 @@ class EasyPV:
         if self._visible(page, 'input[type="password"]'):
             raise EasyPVError("Easy-PV login failed — check easypv credentials in config.yaml")
         log.info("Logged into Easy-PV as %s", self.cfg["email"])
+
+    def _logged_in(self, page) -> bool:
+        return self._visible(
+            page, 'a:has-text("My Projects"), a:has-text("Log out"), '
+                  'a:has-text("Logout"), a:has-text("New Project")')
 
     def _new_project(self, page, lead: Dict[str, Any]) -> Optional[str]:
         for sel in ('a:has-text("New Project")', 'button:has-text("New Project")',
