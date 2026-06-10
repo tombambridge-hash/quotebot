@@ -14,6 +14,10 @@ of the body is the command:
                                           Easy-PV proposal automatically)
     run 3                                 (re)price lead #3 & create proposal
     ignore 3                              mark lead #3 ignored
+    lead                                  treat the rest of this email as a
+                                          pasted/forwarded Formspree lead
+                                          (forwarding with subject "Fwd: ..."
+                                          works too)
 """
 
 import logging
@@ -21,7 +25,7 @@ import re
 import shlex
 from typing import Any, Callable, Dict, Optional
 
-from . import pricing
+from . import lead_parser, pricing
 from .state import Store
 
 log = logging.getLogger("quotebot.commands")
@@ -69,7 +73,7 @@ def _spec_from(fields: Dict[str, Any], cfg: dict) -> pricing.JobSpec:
 
 
 def handle(body: str, store: Store, cfg: dict,
-           run_pipeline: Callable[[int], str]) -> str:
+           run_pipeline: Callable[[int], str], subject: str = "") -> str:
     """Execute a command email body; return the reply text."""
     line = next((ln.strip() for ln in body.splitlines() if ln.strip()), "")
     # Strip quoted-reply junk like "> " prefixes
@@ -81,6 +85,12 @@ def handle(body: str, store: Store, cfg: dict,
     except ValueError:
         tokens = line.split()
     cmd = tokens[0].lower()
+
+    # Forwarded Formspree email, or explicit "lead" first line: ingest the
+    # body as a lead instead of treating it as a command.
+    if subject.strip().lower().startswith("fwd:") or cmd == "lead":
+        lead_body = body.split("\n", 1)[1] if cmd == "lead" and "\n" in body else body
+        return _ingest_lead(lead_body, store, cfg, run_pipeline)
 
     if cmd in ("help", "?"):
         return HELP
@@ -123,3 +133,21 @@ def handle(body: str, store: Store, cfg: dict,
         return f"Lead #{tokens[1]} ignored."
 
     return f"Unknown command: {line}\n" + HELP
+
+
+def _ingest_lead(body: str, store: Store, cfg: dict,
+                 run_pipeline: Callable[[int], str]) -> str:
+    aliases = cfg.get("leads", {}).get("field_aliases", {})
+    fields = lead_parser.parse_lead(body, aliases)
+    if not (fields.get("name") or fields.get("email") or fields.get("postcode")):
+        return ("Couldn't find any lead details (name/email/postcode) in that "
+                "email. Paste the Formspree submission below a first line of "
+                "'lead'.")
+    lead_id = store.add_lead(fields, raw=body)
+    if lead_parser.has_specs(fields):
+        return run_pipeline(lead_id)
+    store.update_lead(lead_id, status="awaiting_spec")
+    return (f"Lead #{lead_id} saved: {fields.get('name') or 'unknown'} "
+            f"({fields.get('postcode') or fields.get('address') or 'no address'}).\n"
+            f"No system size found — reply with:\n\n"
+            f"    spec {lead_id} panels=12 batteries=1 storeys=2")

@@ -132,7 +132,9 @@ class Quote:
 def scaffold_from_text(text: str) -> str:
     """Best-effort mapping of free text (e.g. 'two storey house') to a
     scaffold rate key."""
-    t = (text or "").lower()
+    t = (text or "").lower().strip()
+    if t in ("1", "2", "3"):  # bare storey count, e.g. "storeys=1" from a command
+        return {"1": "bungalow", "2": "two_storey", "3": "three_storey"}[t]
     if any(w in t for w in ("bungalow", "ground floor", "single storey", "1 storey", "one storey")):
         if "extension" in t:
             return "single_storey_extension"

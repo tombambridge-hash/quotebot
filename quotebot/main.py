@@ -98,7 +98,8 @@ class Bot:
 
     def handle_command(self, msg) -> None:
         log.info("Command from %s: %s", msg.sender, msg.subject)
-        reply = commands.handle(msg.body, self.store, self.cfg, self.run_pipeline)
+        reply = commands.handle(msg.body, self.store, self.cfg,
+                                self.run_pipeline, subject=msg.subject)
         notify.send_email(self.cfg, msg.sender, f"Re: {msg.subject}", reply)
 
     # ------------------------------------------------------------------

@@ -70,6 +70,14 @@ class EasyPV:
                 browser.close()
 
     # ------------------------------------------------------------------
+    @staticmethod
+    def _settle(page) -> None:
+        """Wait for the page to go quiet, but never fail the run over it."""
+        try:
+            page.wait_for_load_state("networkidle", timeout=8000)
+        except Exception:
+            pass
+
     def _login(self, page) -> None:
         page.goto(self.base_url)
         # Already logged in from a saved session?
@@ -89,7 +97,7 @@ class EasyPV:
             'button[type="submit"], input[type="submit"], '
             'button:has-text("Log in"), button:has-text("Sign in")'
         ).first.click()
-        page.wait_for_load_state("networkidle")
+        self._settle(page)
         if self._visible(page, 'input[type="password"]'):
             raise EasyPVError("Easy-PV login failed — check easypv credentials in config.yaml")
         log.info("Logged into Easy-PV as %s", self.cfg["email"])
@@ -102,7 +110,7 @@ class EasyPV:
                 break
         else:
             page.goto(f"{self.base_url}/projects/new")
-        page.wait_for_load_state("networkidle")
+        self._settle(page)
 
         self._fill_first(page, ["project name", "name", "title", "reference"],
                          self._project_name(lead))
@@ -119,7 +127,7 @@ class EasyPV:
             if self._visible(page, sel):
                 page.locator(sel).first.click()
                 break
-        page.wait_for_load_state("networkidle")
+        self._settle(page)
         return page.url
 
     def _add_services_cost(self, page, quote) -> None:
@@ -129,7 +137,7 @@ class EasyPV:
                     'a:has-text("Pricing")', 'button:has-text("Quote")'):
             if self._visible(page, sel):
                 page.locator(sel).first.click()
-                page.wait_for_load_state("networkidle")
+                self._settle(page)
                 opened = True
                 break
         if not opened:

@@ -7,6 +7,7 @@ and classifies new messages as Formspree leads or owner commands.
 
 import email
 import email.header
+import email.utils
 import imaplib
 import logging
 import re
@@ -111,10 +112,12 @@ class Mailbox:
                 subject = _decode_header(msg.get("Subject", ""))
                 body = extract_body(msg)
                 is_lead = any(s in sender for s in self.lead_senders)
-                is_command = (not is_lead) and any(
-                    sender == s or sender.endswith("@" + s.split("@")[-1]) and sender == s
-                    for s in self.command_senders
-                ) and subject.strip().lower().startswith(("bot", "re: [quotebot]", "quotebot"))
+                is_command = (
+                    not is_lead
+                    and sender in self.command_senders
+                    and subject.strip().lower().startswith(
+                        ("bot", "re: [quotebot]", "quotebot", "fwd: "))
+                )
                 results.append(InboundMail(
                     uid=uid, sender=sender, subject=subject, body=body,
                     message_id=msg.get("Message-ID", ""),

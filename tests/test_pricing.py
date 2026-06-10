@@ -37,6 +37,13 @@ def test_ev_charger_and_extras():
     assert with_cu - base == 400
 
 
+def test_scaffold_from_bare_storey_digits():
+    # "storeys=1" from a phone command must not silently price as two-storey
+    assert scaffold_from_text("1") == "bungalow"
+    assert scaffold_from_text("2") == "two_storey"
+    assert scaffold_from_text("3") == "three_storey"
+
+
 def test_scaffold_from_text():
     assert scaffold_from_text("Bungalow with easy access") == "bungalow"
     assert scaffold_from_text("3 storey terrace") == "three_storey"
