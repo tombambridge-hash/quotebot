@@ -3,6 +3,8 @@ state.db
 chrome-profile/
 logs/
 venv/
+.venv-test/
+chrome-quotebot/
 __pycache__/
 *.pyc
 .DS_Store
