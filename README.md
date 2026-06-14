@@ -1,148 +1,172 @@
-# QuoteBot — Bambridge Renewables lead-to-proposal bot
+# QuoteBot v2 — Bambridge Renewables lead-to-proposal bot
 
 Watches **tombambridge@icloud.com** for Formspree lead emails from the solar
-website, prices each job with the agreed **Bambridge pricing formula**
-(`data/Bambridge_Pricing_Formula.xlsx`), drives **Google Chrome** to create the
-project in **Easy-PV**, and emails you the quote + project link. You can talk
-to it **from any device** by emailing it commands.
+website and, with **zero human involvement**, creates a full **Easy-PV**
+customer proposal: it creates the project via the Easy-PV API, then hands a
+dedicated Chrome window to **Claude Computer Use** to log in, finish the roof
+design, pick the standard components and generate the customer proposal, then
+confirms the proposal PDF via the API and emails you the project link. You can
+also talk to it by emailing commands from any device.
 
-## What happens when a lead arrives
+If anything goes wrong it **always emails you the project URL to finish
+manually** — no lead is ever lost.
 
-1. Formspree email lands in your iCloud inbox.
-2. Bot parses name / phone / address / postcode / message, and pulls panel &
-   battery counts out of the enquiry if they're mentioned.
-3. **If it can size the job** → it prices it (formula below), opens Chrome,
-   logs into Easy-PV, creates the project pre-filled with the client details,
-   adds the services total as a custom cost line, and emails you the quote
-   breakdown + Easy-PV link (plus an optional iMessage ping).
-4. **If it can't size the job** → it emails you the lead and asks for specs.
-   Reply from your iPhone/iPad/any Mac with subject **Bot** and first line:
+## The pipeline
 
-   ```
-   spec 3 panels=12 batteries=1 storeys=2
-   ```
+1. Poll iCloud over IMAP every 60s.
+2. A Formspree lead arrives from `noreply@formspree.io`.
+3. Parse the customer details (handles Formspree's **two-line** field format).
+4. `POST /api/v1/projects/create` (header `X-API-KEY`, `owner =
+   bambridgeelectrical@icloud.com`, `magicMode: true`) → `projectId`.
+5. Launch a dedicated Chrome window (the **QuoteBot** profile, isolated from your
+   everyday Chrome) and run Claude Computer Use to log in, open
+   `…/project/{projectId}`, complete the design, select the standard components
+   and generate the customer proposal.
+6. Poll `GET /api/v1/files/list` every 30s for up to 3 minutes for a file with
+   id `customerProposal`.
+7. On success, email: *"New lead #X processed — Easy-PV proposal generated.
+   Project: …"*
+8. On any failure or timeout (10 min cap / 50-step cap), email:
+   *"Computer Use failed — please complete this proposal manually: …"*
 
-   and it finishes the job (prices + Easy-PV proposal) and replies.
+Everything is logged verbosely to `logs/quotebot.log`.
 
-## Pricing formula (from the spreadsheet, rates agreed June 2026)
+## Requirements (the Mac mini)
 
-| Component | Rate |
-|---|---|
-| Panel labour | £80 / panel |
-| DC stringing | £25 / panel |
-| Battery install | £220 / battery |
-| Battery rack & DC bus | £100 / battery |
-| Frame/rail | £150 / roof face |
-| DC string to inverter | £50 / string |
-| Inverter mount & AC connection | £200 |
-| Inverter commissioning | £80 |
-| AC electrical materials | £400 |
-| Scaffolding | £400–£1,400 by property (2-storey = £800) |
-| G99 admin + commissioning | £300 (auto-added when system > 3.68 kW) |
-| MCS registration | £100 |
-| EV charger add-on | £150 |
+- **macOS 14.x**, always on, with a real screen (Chrome is visible, not headless).
+- **Homebrew Python 3.11** — do **not** use the system Python 3.9 (LibreSSL/IMAP
+  problems). Install it first:
+  ```bash
+  brew install python@3.11
+  python3.11 --version    # confirm before continuing
+  ```
+- **Google Chrome** installed at `/Applications/Google Chrome.app`.
+- **Privacy & Security permissions** (without these Computer Use fails silently):
+  - *Screen Recording* → enable **Terminal** and **Python**
+  - *Accessibility* → enable **Terminal** and **Python**
 
-If rates change, edit `quotebot/pricing.py` (`RATES` / `SCAFFOLD`) to match the
-updated spreadsheet.
-
-## Install (on the Mac that will run the bot)
+## Install
 
 ```bash
 git clone https://github.com/tombambridge-hash/quotebot.git
 cd quotebot
-./install.sh          # creates config.yaml first time — edit it, then re-run
+./install.sh        # creates config.yaml the first time — edit it, then re-run
 ```
 
-You need one credential in `config.yaml` (it's gitignored, never pushed):
+`config.yaml` is gitignored. Fill in (see `config.example.yaml` for the full,
+commented list):
 
-1. **iCloud app-specific password** — your normal Apple password won't work
-   over IMAP. Create one at <https://appleid.apple.com> → *Sign-In and
-   Security* → *App-Specific Passwords*.
+| Setting | What |
+|---|---|
+| `icloud.app_password` | iCloud **app-specific** password (appleid.apple.com → Sign-In and Security) |
+| `easypv.email` / `easypv.password` | Easy-PV login (Computer Use logs in fresh each run) |
+| `easypv.api_key` | Easy-PV REST API key (sent as `X-API-KEY`) |
+| `anthropic.api_key` | Anthropic API key (console.anthropic.com) |
 
-**No Easy-PV password needed** — the bot keeps its own logged-in Chrome
-profile. During calibration (below) a Chrome window opens; log into Easy-PV in
-it once and the bot stays logged in from then on, like your normal Chrome.
+`install.sh` then runs the tests and installs the launchd service so the bot
+starts at login and restarts on crash. Keep the Mac awake (`caffeinate -dimsu &`
+or the Energy settings) — a sleeping Mac can't read mail or drive Chrome.
 
-`install.sh` installs a launchd service so the bot starts at login and
-restarts itself if it crashes. The Mac must be on (and not fully asleep) for
-the bot to work — in System Settings enable *"Prevent automatic sleeping when
-the display is off"* or use `caffeinate`, since a sleeping Mac can't read mail
-or drive Chrome.
-
-### First-time Easy-PV calibration
-
-Easy-PV's pages change occasionally, so do one supervised test run:
+### Calibrate / watch it work
 
 ```bash
-./venv/bin/python -m quotebot.easypv
+./venv/bin/python -m quotebot.easypv            # create a test project via the API
+./venv/bin/python -m quotebot.easypv --design   # …and watch a full Computer Use run
+tail -f logs/quotebot.log                        # live activity
 ```
 
-A visible Chrome window opens, logs in and creates a test project so you can
-confirm the flow works on your account. If a step fails it saves a screenshot
-in `logs/`. **Note:** the roof design (drawing the array on the map) needs a
-human eye — the bot creates the project, fills the client details and adds
-your services price; you finish the design from the emailed link.
+## Computer Use model & cost
 
-## AI roof design (Claude vision)
+The Computer Use model is set by `anthropic.computer_use_model` (default
+`claude-sonnet-4-6` — the most cost-effective model that reliably handles a
+multi-step roof design). The **beta header and tool version are derived from the
+model automatically**, so they can never drift out of sync:
 
-With an Anthropic API key in `config.yaml` (`anthropic.api_key`, from
-<https://console.anthropic.com>), the bot **draws the panel array itself**:
-after creating the Easy-PV project it screenshots the satellite map, asks
-Claude where to click and drag (find the property, pick the south-facing roof
-face, avoid chimneys/velux, place the panels, set the pitch), executes each
-action in Chrome, and repeats until the design is saved. The summary email
-tells you what it designed so you can sanity-check before sending.
+| Model | Beta header | Tool version |
+|---|---|---|
+| `claude-sonnet-4-6`, `claude-opus-4-8/4.7/4.6/4.5` | `computer-use-2025-11-24` | `computer_20251124` |
+| `claude-haiku-4-5`, `claude-sonnet-4-5` | `computer-use-2025-01-24` | `computer_20250124` |
 
-- Pay-as-you-go: a typical design costs a few pence (each step sends one
-  screenshot to the API).
-- Safety cap: `anthropic.max_design_steps` (default 40). If Claude can't
-  finish — property not found on the map, unusual roof — it says so, the
-  project is still created with your price attached, and the email tells you
-  to finish the design by hand. No lead is ever lost.
-- Leave `api_key` blank to keep the design step manual.
+`claude-haiku-4-5` is cheaper but less reliable on complex designs;
+`claude-opus-4-8`/`4-7` are the most accurate (and most expensive). Each proposal
+is capped at **50 steps** and **10 minutes** (`anthropic.max_steps` /
+`anthropic.timeout_seconds`); `anthropic.effort` defaults to `medium`, the
+recommended setting for computer use.
 
-## Talking to the bot remotely
+> Verified against the Computer use docs (June 2026). The brief's
+> `computer-use-2024-10-22` header is from the retired Claude 3.5 era — the
+> values above are current.
 
-Email **tombambridge@icloud.com → itself** (from Mail on any Apple device)
-with subject starting **Bot**. First line of the body is the command:
+## Talking to the bot
+
+Email **tombambridge@icloud.com → itself** with subject starting **Bot**. The
+first line of the body is the command:
 
 ```
 status                          recent leads & their state
 show 3                          full details for lead #3
-price panels=12 batteries=1 storeys=2 ev=1
-spec 3 panels=12 batteries=1    set specs for lead #3 → auto price + proposal
-run 3                           re-run pricing + Easy-PV for lead #3
+run 3                           (re)run the Easy-PV pipeline for lead #3
+spec 3 panels=12 batteries=1 storeys=2    set specs (then runs the pipeline)
 ignore 3                        drop lead #3
 help                            list commands
 ```
 
-The bot replies by email within one poll cycle (60s by default). Only senders
-listed in `owner.command_senders` are obeyed.
+Only senders in `owner.command_senders` are obeyed. Forwarding a Formspree email
+(subject `Fwd: …`) ingests it as a lead.
 
-Optional: set `owner.imessage_handle` in config.yaml and the bot also sends
-you an iMessage ping when a proposal is ready (requires granting Terminal/
-python automation access to Messages the first time macOS asks).
+## State database (`state.db`)
+
+SQLite, tracks leads and the last processed IMAP UID to prevent duplicate
+processing. The `last_uid` is read on startup and **written immediately after
+each message is fetched, before processing it**, so a crash mid-pipeline can't
+re-process the same email; it is never reset on restart. New columns are added
+to an existing v1 database additively (no data loss). Schema (from
+`quotebot/state.py`):
+
+```sql
+CREATE TABLE leads (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created REAL,
+    name TEXT, email TEXT, phone TEXT,
+    address TEXT, postcode TEXT, message TEXT,
+    panels INTEGER, batteries INTEGER, scaffold TEXT,
+    roof_faces INTEGER, dc_strings INTEGER, ev_charger INTEGER DEFAULT 0,
+    status TEXT DEFAULT 'new',   -- new | awaiting_info | project_created |
+                                 -- proposal_generated | needs_manual | ignored | error
+    quote_total INTEGER, quote_text TEXT,
+    easypv_project_id TEXT, easypv_url TEXT,
+    proposal_confirmed INTEGER DEFAULT 0,
+    details TEXT,                -- JSON of the rich form fields (epc, roof, usage…)
+    error TEXT, raw TEXT
+);
+CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT);   -- holds last_uid
+```
 
 ## Files
 
 ```
-quotebot/main.py            daemon loop (mail → price → Easy-PV → notify)
-quotebot/email_monitor.py   iCloud IMAP polling, UID tracking
-quotebot/lead_parser.py     Formspree email → structured lead
-quotebot/pricing.py         Bambridge formula
-quotebot/easypv.py          Chrome/Playwright Easy-PV automation
-quotebot/commands.py        email command channel
-quotebot/notify.py          email + iMessage notifications
-config.example.yaml         all settings, copy to config.yaml
-install.sh                  one-shot macOS installer (venv + launchd)
-data/Bambridge_Pricing_Formula.xlsx   source spreadsheet
+quotebot/main.py          daemon loop (mail → project → Computer Use → confirm → notify)
+quotebot/email_monitor.py iCloud IMAP polling, UID tracking
+quotebot/lead_parser.py   Formspree two-line (and legacy colon/HTML) → structured lead
+quotebot/easypv.py        Easy-PV REST API + dedicated Chrome + orchestration
+quotebot/computer_use.py  Claude Computer Use agent (drives the Mac screen)
+quotebot/pricing.py       Bambridge services pricing formula (for owner reference)
+quotebot/commands.py      email command channel
+quotebot/notify.py        email + optional iMessage notifications
+quotebot/state.py         SQLite persistence + migrations
+config.example.yaml       all settings, copy to config.yaml
+install.sh                Python 3.11 venv + launchd installer
 ```
 
 ## Troubleshooting
 
-- `tail -f logs/quotebot.log` — live activity.
-- Login failure on IMAP → regenerate the app-specific password.
-- Easy-PV step failing → check `logs/easypv_*_error.png` screenshots, rerun
-  the calibration; the bot still emails you the quote so no lead is lost.
-- Bot not replying to commands → subject must start with "Bot" and be sent
-  from an address in `owner.command_senders`.
+- **Computer Use does nothing / clicks miss** → grant Screen Recording +
+  Accessibility to Terminal *and* Python, then reload the service.
+- **IMAP login fails** → regenerate the iCloud app-specific password; make sure
+  you're on Homebrew Python 3.11, not system 3.9.
+- **`create_project` errors** → check `easypv.api_key`; the full API response is
+  logged. Add any account-specific fields under `easypv.extra_project_fields`.
+- **Proposal not confirmed** → you still get an email with the project URL to
+  finish by hand; widen `easypv.poll_timeout_seconds` if Easy-PV is slow.
+- **Bot not replying to commands** → subject must start with `Bot` and come from
+  an address in `owner.command_senders`.

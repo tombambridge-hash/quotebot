@@ -48,12 +48,20 @@ def test_forwarded_email_ingested_as_lead():
     assert row["batteries"] == 1
 
 
-def test_lead_command_without_specs_asks_for_spec():
+def test_lead_command_without_address_asks_for_more():
     store = Store(":memory:")
     out = commands.handle("lead\nName: Bob\nEmail: bob@example.com",
                           store, CFG, _bot(store), subject="Bot")
     assert "spec 1" in out
-    assert store.get_lead(1)["status"] == "awaiting_spec"
+    assert store.get_lead(1)["status"] == "awaiting_info"
+
+
+def test_lead_command_with_address_runs_pipeline():
+    store = Store(":memory:")
+    body = ("lead\nName: Sara\nEmail: sara@example.com\n"
+            "Address: 9 Hill Road, Newport, NP20 1AA")
+    out = commands.handle(body, store, CFG, _bot(store), subject="Bot")
+    assert out == "pipeline ran for #1"
 
 
 def test_spec_command_runs_pipeline():

@@ -144,10 +144,13 @@ def _ingest_lead(body: str, store: Store, cfg: dict,
                 "email. Paste the Formspree submission below a first line of "
                 "'lead'.")
     lead_id = store.add_lead(fields, raw=body)
-    if lead_parser.has_specs(fields):
+    # v2: an address + postcode is enough to run the Easy-PV pipeline; a panel
+    # count is no longer required.
+    if lead_parser.has_address(fields) or lead_parser.has_specs(fields):
         return run_pipeline(lead_id)
-    store.update_lead(lead_id, status="awaiting_spec")
+    store.update_lead(lead_id, status="awaiting_info")
     return (f"Lead #{lead_id} saved: {fields.get('name') or 'unknown'} "
             f"({fields.get('postcode') or fields.get('address') or 'no address'}).\n"
-            f"No system size found — reply with:\n\n"
+            f"I couldn't read a full address + postcode. Reply with the address, "
+            f"or set the size and I'll proceed:\n\n"
             f"    spec {lead_id} panels=12 batteries=1 storeys=2")

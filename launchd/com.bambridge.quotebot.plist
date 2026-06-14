@@ -13,6 +13,15 @@
   </array>
   <key>WorkingDirectory</key>
   <string>__REPO__</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+  <!-- Interactive so it runs in the user's GUI session (needed for Computer
+       Use to see the screen and drive Chrome). -->
+  <key>ProcessType</key>
+  <string>Interactive</string>
   <key>RunAtLoad</key>
   <true/>
   <key>KeepAlive</key>
