@@ -11,22 +11,39 @@ REPO="$(pwd)"
 
 echo "== QuoteBot v2 installer =="
 
-# --- 1. Find Homebrew Python 3.11 (do NOT use system python3.9) ------------
+# --- 1. Find Homebrew Python 3.11 (NEVER the system python3.9) -------------
+# Prefer the Apple-silicon Homebrew path, then Intel Homebrew, then PATH — and
+# confirm each candidate really reports 3.11 before accepting it (a python3.11
+# that is somehow 3.9/3.12 is rejected rather than silently used).
 PY311=""
 for cand in /opt/homebrew/bin/python3.11 /usr/local/bin/python3.11 "$(command -v python3.11 2>/dev/null)"; do
-  if [ -n "$cand" ] && [ -x "$cand" ]; then PY311="$cand"; break; fi
+  if [ -n "$cand" ] && [ -x "$cand" ] && \
+     "$cand" -c 'import sys; raise SystemExit(0 if sys.version_info[:2]==(3,11) else 1)' 2>/dev/null; then
+    PY311="$cand"; break
+  fi
 done
 if [ -z "$PY311" ]; then
-  echo "!! Python 3.11 not found. Install it with Homebrew first:"
+  echo "!! Homebrew Python 3.11 not found (looked at /opt/homebrew/bin/python3.11,"
+  echo "   /usr/local/bin/python3.11, and PATH). Install it with:"
   echo "     brew install python@3.11"
-  echo "   then re-run ./install.sh"
   exit 1
 fi
 echo "-> Using $PY311 ($($PY311 --version 2>&1))"
 
 # --- 2. Create the venv with Python 3.11 -----------------------------------
+# Always rebuild from scratch: 'python -m venv venv' over an EXISTING venv
+# re-uses it, so a stale Python 3.9 venv from an earlier run would survive.
+# Removing it first guarantees the venv is really 3.11.
 echo "-> Creating Python 3.11 virtual environment (venv/)"
+rm -rf venv
 "$PY311" -m venv venv
+VENV_VER="$(./venv/bin/python -c 'import sys; print("%d.%d" % sys.version_info[:2])')"
+if [ "$VENV_VER" != "3.11" ]; then
+  echo "!! venv is Python $VENV_VER, expected 3.11 — aborting. Delete venv/ and"
+  echo "   check that $PY311 is really Python 3.11."
+  exit 1
+fi
+echo "-> venv Python $VENV_VER confirmed"
 ./venv/bin/python -m pip install --quiet --upgrade pip
 echo "-> Installing dependencies"
 ./venv/bin/pip install --quiet -r requirements.txt
