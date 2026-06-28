@@ -19,8 +19,8 @@ import time
 import traceback
 
 from . import commands, config, lead_parser, notify, pricing
-from .easypv import EasyPV, EasyPVError
 from .email_monitor import Mailbox
+from .providers import ProviderError, get_provider
 from .state import Store
 
 log = logging.getLogger("quotebot")
@@ -44,7 +44,9 @@ class Bot:
         base = os.path.dirname(cfg.get("_config_path") or ".") or "."
         self.store = Store(os.path.join(base, bot_cfg.get("state_db", "state.db")))
         self.mailbox = Mailbox(cfg)
-        self.easypv = EasyPV(cfg)
+        self.provider = get_provider(cfg)
+        self.provider_name = {"easypv": "Easy-PV", "pylon": "Pylon"}.get(
+            (cfg.get("provider") or "easypv").lower(), cfg.get("provider") or "provider")
         self.poll = int(bot_cfg.get("poll_seconds", 60))
         self.dry_run = bool(bot_cfg.get("dry_run", False))
 
@@ -101,7 +103,7 @@ class Bot:
                 "New website lead received:\n\n"
                 + self.store.dump_lead(self.store.get_lead(lead_id))
                 + "\n\nI couldn't read a full address + postcode from the "
-                  "enquiry, so I can't create the Easy-PV project automatically.\n"
+                  "enquiry, so I can't create the project automatically.\n"
                   "Reply from any device with subject 'Bot' and the address, or "
                   f"once it's added, send:  run {lead_id}")
 
@@ -123,36 +125,36 @@ class Bot:
         if not lead_parser.has_address(lead):
             self.store.update_lead(lead_id, status="awaiting_info")
             return (f"Lead #{lead_id} has no address/postcode yet — reply with "
-                    "the address so I can create the Easy-PV project.")
+                    "the address so I can create the project.")
 
         quote_note = self._pricing_note(lead)
 
-        if self.dry_run or not self.easypv.enabled:
+        if self.dry_run or not self.provider.enabled:
             summary = (f"Lead #{lead_id}: {lead.get('name') or 'unknown'} "
-                       f"({lead.get('postcode')})\n(dry run — Easy-PV skipped)\n\n{quote_note}")
+                       f"({lead.get('postcode')})\n(dry run — {self.provider_name} skipped)\n\n{quote_note}")
             notify.notify_owner(self.cfg, f"Lead #{lead_id} (dry run)", summary)
             return summary
 
         # 1. Create the Easy-PV project via the API.
         try:
-            project_id = self.easypv.create_project(lead)
-        except EasyPVError as exc:
+            project_id = self.provider.create_project(lead)
+        except ProviderError as exc:
             self.store.update_lead(lead_id, status="error", error=str(exc))
-            summary = (f"Lead #{lead_id}: couldn't create the Easy-PV project.\n"
+            summary = (f"Lead #{lead_id}: couldn't create the {self.provider_name} project.\n"
                        f"{exc}\n\nCreate it manually and reply 'run {lead_id}' to retry.")
             notify.notify_owner(self.cfg,
-                                f"Lead #{lead_id} — Easy-PV project FAILED", summary)
+                                f"Lead #{lead_id} — {self.provider_name} project FAILED", summary)
             return summary
 
-        url = self.easypv.project_url(project_id)
+        url = self.provider.project_url(project_id)
         self.store.update_lead(lead_id, status="project_created",
                                easypv_project_id=project_id, easypv_url=url)
 
         # 2. Computer Use completes the design + generates the proposal.
         cu_error = ""
         try:
-            self.easypv.generate_proposal(project_id, lead)
-        except EasyPVError as exc:
+            self.provider.generate_proposal(project_id, lead)
+        except Exception as exc:
             cu_error = str(exc)
             log.error("Computer Use failed for lead #%s: %s", lead_id, exc)
 
@@ -161,14 +163,14 @@ class Bot:
         confirmed = False
         if not cu_error:
             try:
-                confirmed = self.easypv.wait_for_proposal(project_id)
+                confirmed = self.provider.wait_for_proposal(project_id)
             except Exception as exc:
                 log.error("Proposal polling failed for lead #%s: %s", lead_id, exc)
 
         if confirmed:
             self.store.update_lead(lead_id, status="proposal_generated",
                                    proposal_confirmed=1, error=None)
-            summary = (f"New lead #{lead_id} processed — Easy-PV proposal "
+            summary = (f"New lead #{lead_id} processed — {self.provider_name} proposal "
                        f"generated.\nProject: {url}\n\n{_lead_line(lead)}\n\n{quote_note}")
             notify.notify_owner(
                 self.cfg,
@@ -195,7 +197,7 @@ class Bot:
         panel count is known. Never gates the pipeline."""
         panels = int(lead.get("panels") or 0)
         if panels <= 0:
-            return ("(No panel count on this lead — Easy-PV's own proposal "
+            return ("(No panel count on this lead — the design tool's own proposal "
                     "covers the pricing. Send 'spec %s panels=.. batteries=..' "
                     "for a Bambridge services quote.)" % lead.get("id", "X"))
         spec = pricing.JobSpec(

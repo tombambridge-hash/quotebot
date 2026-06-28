@@ -97,6 +97,25 @@ recommended setting for computer use.
 > `computer-use-2024-10-22` header is from the retired Claude 3.5 era — the
 > values above are current.
 
+## Proposal backend (Easy-PV or Pylon)
+
+The proposal backend is pluggable — set `provider: easypv` or `provider: pylon`
+in `config.yaml`. Both follow the same flow (API creates the project →
+Computer Use finishes the design + generates the proposal → confirm → email);
+they differ only in API/auth/UI, which live in each provider's config section:
+
+- **easypv** — `X-API-KEY`, `/api/v1/projects/create`, `magicMode`, confirmed by
+  polling `/files/list` for the `customerProposal` file.
+- **pylon** ([getpylon.com](https://getpylon.com/developers/)) — `Authorization:
+  Bearer`, `/lead_form` to create, proposals signalled by webhook (so
+  confirmation is `confirm_mode: trust` by default, or `poll` a configured
+  endpoint). Pylon's API reference is gated, so the endpoint/URL/field values in
+  the `pylon:` config block are defaults to **confirm against your account** —
+  they're config, not hard-coded, so no code change is needed to correct them.
+
+Components, login, and Chrome are shared; the `chrome:` block configures the
+dedicated isolated Chrome window used by either provider.
+
 ## Talking to the bot
 
 Email **tombambridge@icloud.com → itself** with subject starting **Bot**. The
@@ -148,7 +167,10 @@ CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT);   -- holds last_uid
 quotebot/main.py          daemon loop (mail → project → Computer Use → confirm → notify)
 quotebot/email_monitor.py iCloud IMAP polling, UID tracking
 quotebot/lead_parser.py   Formspree two-line (and legacy colon/HTML) → structured lead
-quotebot/easypv.py        Easy-PV REST API + dedicated Chrome + orchestration
+quotebot/providers.py     provider selection (easypv | pylon)
+quotebot/easypv.py        Easy-PV provider (REST API + Computer Use orchestration)
+quotebot/pylon.py         Pylon (getpylon.com) provider (Bearer API + Computer Use)
+quotebot/browser.py       shared dedicated/isolated Chrome launcher
 quotebot/computer_use.py  Claude Computer Use agent (drives the Mac screen)
 quotebot/pricing.py       Bambridge services pricing formula (for owner reference)
 quotebot/commands.py      email command channel

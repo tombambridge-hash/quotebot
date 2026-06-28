@@ -46,9 +46,9 @@ LEAD_BODY = ("name\nRoss Michael\nemail\nross@example.com\n"
 def test_full_pipeline_success(tmp_path, monkeypatch):
     sent = []
     bot = _bot(tmp_path, monkeypatch, sent)
-    monkeypatch.setattr(bot.easypv, "create_project", lambda lead: "PROJ1")
-    monkeypatch.setattr(bot.easypv, "generate_proposal", lambda pid, lead: "DONE")
-    monkeypatch.setattr(bot.easypv, "wait_for_proposal", lambda pid: True)
+    monkeypatch.setattr(bot.provider, "create_project", lambda lead: "PROJ1")
+    monkeypatch.setattr(bot.provider, "generate_proposal", lambda pid, lead: "DONE")
+    monkeypatch.setattr(bot.provider, "wait_for_proposal", lambda pid: True)
 
     bot.handle_lead(FakeMail(1, "noreply@formspree.io", "New lead", LEAD_BODY,
                              is_lead=True))
@@ -64,11 +64,11 @@ def test_full_pipeline_success(tmp_path, monkeypatch):
 def test_pipeline_computer_use_failure_emails_manual(tmp_path, monkeypatch):
     sent = []
     bot = _bot(tmp_path, monkeypatch, sent)
-    monkeypatch.setattr(bot.easypv, "create_project", lambda lead: "PROJ2")
+    monkeypatch.setattr(bot.provider, "create_project", lambda lead: "PROJ2")
 
     def boom(pid, lead):
         raise EasyPVError("step cap hit")
-    monkeypatch.setattr(bot.easypv, "generate_proposal", boom)
+    monkeypatch.setattr(bot.provider, "generate_proposal", boom)
 
     bot.handle_lead(FakeMail(2, "noreply@formspree.io", "New lead", LEAD_BODY,
                              is_lead=True))
@@ -84,9 +84,9 @@ def test_pipeline_computer_use_failure_emails_manual(tmp_path, monkeypatch):
 def test_pipeline_proposal_not_confirmed_falls_back(tmp_path, monkeypatch):
     sent = []
     bot = _bot(tmp_path, monkeypatch, sent)
-    monkeypatch.setattr(bot.easypv, "create_project", lambda lead: "PROJ3")
-    monkeypatch.setattr(bot.easypv, "generate_proposal", lambda pid, lead: "DONE")
-    monkeypatch.setattr(bot.easypv, "wait_for_proposal", lambda pid: False)
+    monkeypatch.setattr(bot.provider, "create_project", lambda lead: "PROJ3")
+    monkeypatch.setattr(bot.provider, "generate_proposal", lambda pid, lead: "DONE")
+    monkeypatch.setattr(bot.provider, "wait_for_proposal", lambda pid: False)
 
     bot.handle_lead(FakeMail(3, "noreply@formspree.io", "New lead", LEAD_BODY,
                              is_lead=True))

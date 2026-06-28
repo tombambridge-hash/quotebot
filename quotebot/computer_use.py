@@ -5,7 +5,7 @@ pick the standard Bambridge components, generate the customer proposal).
 This is the official Anthropic Computer Use tool (the `computer` tool with a
 beta header), not browser automation: Claude sees screenshots of macOS display
 :1 and issues mouse/keyboard actions, which we execute with pyautogui. The bot
-launches a dedicated Chrome window first (see easypv.ChromeSession); this agent
+launches a dedicated Chrome window first (see browser.ChromeSession); this agent
 just operates whatever is on screen.
 
 The correct beta header and tool-version string depend on the model, and they
@@ -232,52 +232,32 @@ class MacComputer:
         return None
 
 
-SYSTEM_TEMPLATE = """You are operating a macOS computer through screenshots and \
-mouse/keyboard actions to create a solar PV proposal in Easy-PV \
-(https://easy-pv.co.uk) for Bambridge Renewables. A Google Chrome window using \
-the dedicated "QuoteBot" profile is already open. Work ONLY in this Chrome \
-window — do not open or interact with other applications, windows, or the \
-user's other Chrome profiles.
-
-Complete this whole task without stopping for confirmation:
-
-1. If Chrome is not already on easy-pv.co.uk, click the address bar, type \
-https://easy-pv.co.uk and press Enter.
-2. Click "Login" in the top navigation. The login form opens as a MODAL POPUP \
-(not a separate page) — wait for the modal to fully appear before typing.
-3. Type the email and password from <robot_credentials> into the modal and \
-click the button labelled exactly "Login" (not "Log in").
-4. Go to the project: click the address bar, type {project_url} and press Enter.
-5. Complete the roof design. magicMode auto-detects the roof — wait up to about \
-2 minutes for it to finish before intervening. If it does not detect the roof, \
-outline the main (largest, least-shaded) roof face on the satellite map \
-yourself, avoiding chimneys and roof windows.
-6. Select these standard components — they are already saved in the Bambridge \
-product library, so search each by name:
-   - Panels: Jinko JKM460N 460W
-   - Inverter: Solis S5-EH1P5K hybrid
-   - Batteries: Dyness H5B G2
-7. Generate the customer proposal (find and click the button that generates the \
-customer proposal / PDF).
-8. Once the proposal has been generated, write "DONE" and end your turn.
+GENERIC_PREAMBLE = """You are operating a macOS computer through screenshots and \
+mouse/keyboard actions for Bambridge Renewables. A Google Chrome window using the \
+dedicated "QuoteBot" profile is already open and focused. Work ONLY in this Chrome \
+window — do not open or interact with other applications, windows, or the user's \
+other Chrome profiles.
 
 Working rules:
 - After each action, take a screenshot and check it worked before continuing. \
 Briefly state what you see and what you'll do next.
-- Navigate by typing full URLs into the address bar.
+- Navigate by typing full URLs into the address bar (click it, type, press Enter).
 - If a dropdown or scrollbar is awkward to click, prefer keyboard navigation.
+- When the whole task is finished, write "DONE" and end your turn.
 - If you are stuck on the same screen after several attempts, or something is \
 clearly broken, write "FAILED: <short reason>" and end your turn so a human can \
-finish it. Do not loop indefinitely.
+finish it. Do not loop indefinitely."""
 
-Customer / project details:
-{lead_summary}
 
-<robot_credentials>
-email: {email}
-password: {password}
-</robot_credentials>
-"""
+def build_system(task_text: str, login_email: str = "", login_password: str = "",
+                 lead: Optional[Dict[str, Any]] = None) -> str:
+    parts = [GENERIC_PREAMBLE, "Your task:\n" + (task_text or "").strip()]
+    if login_email or login_password:
+        parts.append("<robot_credentials>\nemail: %s\npassword: %s\n"
+                     "</robot_credentials>" % (login_email, login_password))
+    if lead:
+        parts.append("Customer / project details:\n" + _lead_summary(lead))
+    return "\n\n".join(parts)
 
 _KEEP_IMAGES = 3  # screenshots retained in context; older ones become placeholders
 
@@ -294,15 +274,15 @@ class ComputerUseAgent:
         self.max_tokens = int(a.get("max_tokens", 4096))
         self.effort = a.get("effort", "medium")
         self.timeout_seconds = int(a.get("timeout_seconds", 600))  # 10 minutes
-        ep = cfg.get("easypv", {}) or {}
-        self.display_number = int(ep.get("display_number", 1))
-        self.easypv_email = ep.get("email", "")
-        self.easypv_password = ep.get("password", "")
+        self.display_number = int(a.get("display_number", 1))
 
-    def run(self, project_url: str, lead: Dict[str, Any]) -> str:
-        """Drive the full Easy-PV design + proposal generation. Returns Claude's
-        final text. Raises ComputerUseError on step-cap, timeout, or API error
-        so the caller can fall back to manual completion."""
+    def run(self, task_text: str, login_email: str = "", login_password: str = "",
+            lead: Optional[Dict[str, Any]] = None) -> str:
+        """Drive a provider's web app to completion. `task_text` is the
+        provider-specific instruction body (the numbered steps for Easy-PV,
+        Pylon, …); login credentials and customer details are appended here.
+        Returns Claude's final text. Raises ComputerUseError on step-cap,
+        timeout, or API error so the caller can fall back to manual completion."""
         if not self.enabled:
             raise ComputerUseError(
                 "Computer Use not configured — set anthropic.api_key in config.yaml")
@@ -322,10 +302,7 @@ class ComputerUseAgent:
             tool["enable_zoom"] = True
 
         client = anthropic.Anthropic(api_key=self.api_key)
-        system = SYSTEM_TEMPLATE.format(
-            project_url=project_url,
-            lead_summary=_lead_summary(lead),
-            email=self.easypv_email, password=self.easypv_password)
+        system = build_system(task_text, login_email, login_password, lead)
         messages: List[dict] = [{"role": "user", "content": [
             {"type": "text", "text": "Begin now. Here is the current screen:"},
             computer.screenshot_block()]}]

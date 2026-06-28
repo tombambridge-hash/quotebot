@@ -17,73 +17,27 @@ to finish manually on any failure or timeout.
 """
 
 import logging
-import os
-import signal
-import subprocess
 import time
 from typing import Any, Dict, List, Optional
 
 import requests
 
+from .browser import ChromeSession
+from .providers import ProviderError
+
 log = logging.getLogger("quotebot.easypv")
 
-DEFAULT_CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+# Standard components saved in the Bambridge Easy-PV product library (Computer
+# Use searches each by name). Override via easypv.components in config.yaml.
+DEFAULT_COMPONENTS = {
+    "panels": "Jinko JKM460N 460W",
+    "inverter": "Solis S5-EH1P5K hybrid",
+    "batteries": "Dyness H5B G2",
+}
 
 
-class EasyPVError(Exception):
+class EasyPVError(ProviderError):
     pass
-
-
-class ChromeSession:
-    """Launch a dedicated, isolated Chrome window for the bot and tear it down
-    afterwards. A separate --user-data-dir (plus the "QuoteBot" profile) keeps
-    the bot's session completely apart from the user's everyday Chrome, and
-    means we own a process group we can cleanly kill without touching their
-    windows."""
-
-    def __init__(self, easypv_cfg: dict, start_url: str):
-        self.binary = easypv_cfg.get("chrome_binary", DEFAULT_CHROME)
-        self.user_data_dir = os.path.expanduser(
-            easypv_cfg.get("chrome_user_data_dir", "~/quotebot2/chrome-quotebot"))
-        self.profile = easypv_cfg.get("chrome_profile", "QuoteBot")
-        self.start_url = start_url
-        self.proc: Optional[subprocess.Popen] = None
-
-    def __enter__(self) -> "ChromeSession":
-        os.makedirs(self.user_data_dir, exist_ok=True)
-        cmd = [
-            self.binary,
-            f"--user-data-dir={self.user_data_dir}",
-            f"--profile-directory={self.profile}",
-            "--no-first-run", "--no-default-browser-check",
-            "--start-maximized", "--new-window", self.start_url,
-        ]
-        log.info("Launching dedicated Chrome (%s profile)", self.profile)
-        try:
-            self.proc = subprocess.Popen(
-                cmd, start_new_session=True,
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        except FileNotFoundError as exc:
-            raise EasyPVError(
-                f"Could not launch Chrome at {self.binary}. Set easypv."
-                "chrome_binary in config.yaml.") from exc
-        time.sleep(6)  # let the window open and settle before Computer Use looks
-        return self
-
-    def __exit__(self, *exc) -> None:
-        if not self.proc:
-            return
-        log.info("Closing dedicated Chrome window")
-        try:
-            os.killpg(os.getpgid(self.proc.pid), signal.SIGTERM)
-            try:
-                self.proc.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                os.killpg(os.getpgid(self.proc.pid), signal.SIGKILL)
-        except (ProcessLookupError, PermissionError):
-            pass
-        except Exception:
-            log.warning("Failed to cleanly close the bot's Chrome", exc_info=True)
 
 
 class EasyPV:
@@ -195,10 +149,13 @@ class EasyPV:
         if not agent.enabled:
             raise EasyPVError(
                 "Computer Use not configured — set anthropic.api_key in config.yaml")
-        url = self.project_url(project_id)
-        with ChromeSession(self.cfg, start_url=self.base_url):
+        task = _easypv_task(self.base_url, self.project_url(project_id),
+                            self.cfg.get("components") or DEFAULT_COMPONENTS)
+        with ChromeSession(self._full_cfg, start_url=self.base_url):
             try:
-                return agent.run(url, lead)
+                return agent.run(task, login_email=self.cfg.get("email", ""),
+                                 login_password=self.cfg.get("password", ""),
+                                 lead=lead)
             except ComputerUseError as exc:
                 raise EasyPVError(str(exc)) from exc
 
@@ -206,6 +163,29 @@ class EasyPV:
 def _project_name(lead: Dict[str, Any]) -> str:
     bits = [lead.get("name") or "Web lead", lead.get("postcode") or ""]
     return " - ".join(b for b in bits if b)
+
+
+def _easypv_task(base_url: str, project_url: str, components: Dict[str, str]) -> str:
+    return f"""Create the solar PV customer proposal in Easy-PV.
+
+1. If Chrome is not already on {base_url}, navigate there via the address bar.
+2. Click "Login" in the top navigation. The login form opens as a MODAL POPUP \
+(not a separate page) — wait for it to fully appear before typing.
+3. Enter the email and password from <robot_credentials> and click the button \
+labelled exactly "Login" (not "Log in").
+4. Open the project: type {project_url} into the address bar and press Enter.
+5. Complete the roof design. magicMode auto-detects the roof — wait up to about \
+2 minutes for it to finish before intervening. If it does not detect the roof, \
+outline the main (largest, least-shaded) roof face on the satellite map \
+yourself, avoiding chimneys and roof windows.
+6. Select these standard components (already saved in the Bambridge product \
+library — search each by name):
+   - Panels: {components.get('panels')}
+   - Inverter: {components.get('inverter')}
+   - Batteries: {components.get('batteries')}
+7. Generate the customer proposal (the button that produces the customer \
+proposal / PDF).
+8. When the proposal has been generated, write "DONE" and end your turn."""
 
 
 def _extract_project_id(data: Any) -> Optional[str]:
